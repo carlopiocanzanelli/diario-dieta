@@ -15,13 +15,24 @@
 <style>
   html, body { margin: 0; padding: 0; background: #1B2420; -webkit-tap-highlight-color: transparent; }
   #root { min-height: 100vh; }
+  #boot-status { color: #EDECE6; font-family: -apple-system, sans-serif; padding: 24px; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
 </style>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<script>
+  // Mostra un messaggio leggibile invece di uno schermo vuoto se qualcosa va storto nel caricamento
+  window.addEventListener("error", function (e) {
+    var el = document.getElementById("root");
+    if (el) {
+      var msg = (e && e.message) || (e && e.target && e.target.src ? "Impossibile caricare: " + e.target.src : "Errore sconosciuto");
+      el.innerHTML = '<div id="boot-status">Si e\' verificato un problema nel caricamento dell\'app.<br><br>Dettaglio tecnico:<br>' + msg + '<br><br>Prova a ricaricare la pagina. Se il problema persiste, controlla la connessione internet (l\'app scarica alcune librerie al primo avvio).</div>';
+    }
+  }, true);
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div id="boot-status">Caricamento dell'app in corso...</div></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -1496,8 +1507,16 @@ function App() {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+try {
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App />);
+} catch (err) {
+  document.getElementById("root").innerHTML =
+    '<div id="boot-status">Si e\' verificato un errore nell\'avvio dell\'app.<br><br>Dettaglio tecnico:<br>' +
+    (err && err.message ? err.message : String(err)) +
+    '</div>';
+  console.error(err);
+}
 
 </script>
 <script>
