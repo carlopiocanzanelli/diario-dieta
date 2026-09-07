@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Diario Dieta</title>
+<meta name="theme-color" content="#1B2420" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Dieta" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<style>
+  html, body { margin: 0; padding: 0; background: #1B2420; -webkit-tap-highlight-color: transparent; }
+  #root { min-height: 100vh; }
+</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// --- Polyfill: sostituisce window.storage (disponibile solo negli artifact Claude)
+// con localStorage, cosi' l'app funziona identica una volta ospitata altrove (es. GitHub Pages) ---
+window.storage = {
+  get: async (key) => {
+    const v = localStorage.getItem(key);
+    return v === null ? null : { key, value: v, shared: false };
+  },
+  set: async (key, value) => {
+    localStorage.setItem(key, value);
+    return { key, value, shared: false };
+  },
+  delete: async (key) => {
+    localStorage.removeItem(key);
+    return { key, deleted: true, shared: false };
+  },
+  list: async (prefix) => {
+    const keys = Object.keys(localStorage).filter((k) => !prefix || k.startsWith(prefix));
+    return { keys, shared: false };
+  },
+};
+
+// --- Polyfill: icone semplici al posto di lucide-react (non serve nessuna libreria esterna) ---
+function IconBase({ children, size = 18, color }) {
+  return <span style={{ fontSize: size, lineHeight: 1, color, display: "inline-block" }}>{children}</span>;
+}
+const Utensils = (p) => <IconBase {...p}>🍴</IconBase>;
+const Ruler = (p) => <IconBase {...p}>📏</IconBase>;
+const Dumbbell = (p) => <IconBase {...p}>🏋️</IconBase>;
+const Bell = (p) => <IconBase {...p}>🔔</IconBase>;
+const Camera = (p) => <IconBase {...p}>📷</IconBase>;
+const Plus = (p) => <IconBase {...p}>＋</IconBase>;
+const Trash2 = (p) => <IconBase {...p}>🗑️</IconBase>;
+const Check = (p) => <IconBase {...p}>✓</IconBase>;
+const Clock = (p) => <IconBase {...p}>🕒</IconBase>;
+const TrendingDown = (p) => <IconBase {...p}>📈</IconBase>;
+const X = (p) => <IconBase {...p}>✕</IconBase>;
+const ShoppingCart = (p) => <IconBase {...p}>🛒</IconBase>;
+
+
+const GIORNI = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+
+const PIANO_SETTIMANE = [
+  // Settimana A
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g), cereali integrali (30g), 1 frutto di stagione (120g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + mandorle (20g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g), riso bollito (60g crudo), verdure surgelate al vapore (200g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) + miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di merluzzo surgelato al forno (180g), patate lesse (150g), insalata pronta in busta (50g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), 1 frutto di stagione (150g)" },
+      { l: "Spuntino", d: "Yogurt proteico pronto (150g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) al pomodoro con tonno in scatola (80g sgocciolato)" },
+      { l: "Spuntino", d: "Carote baby (100g) + formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Petto di tacchino ai ferri (180g), zucchine surgelate saltate (200g), riso (50g crudo)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge d'avena veloce al microonde (50g fiocchi + 200ml latte), miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + noci (15g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con gamberi surgelati saltati (150g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Bistecca di manzo ai ferri (150g), insalata in busta (50g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "Toast (2 fette pane integrale, 60g) con marmellata (15g), 1 frutto di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (120g) + mandorle (20g)" },
+      { l: "Pranzo", d: "Farro precotto in busta (60g) con ceci in scatola sciacquati (100g), pomodorini (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con frutta di stagione a cubetti (100g)" },
+      { l: "Cena", d: "Filetto di salmone surgelato al forno (150g), verdure surgelate al vapore (200g)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g) con muesli senza zuccheri (40g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di riso con crema di arachidi (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con quinoa precotta (60g) e pomodori (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con verdure surgelate (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con avocado (50g) e 1 uovo sodo" },
+      { l: "Spuntino", d: "Frullato proteico (200ml latte scremato, 25g proteine in polvere, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con pesto pronto (30g) e petto di pollo ai ferri (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino) e miele (1 cucchiaino)" },
+      { l: "Cena", d: "Piadina integrale (1, 60g) con tacchino ai ferri (120g), insalata (50g) e yogurt bianco (30g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), spremuta di frutta di stagione (200ml)" },
+      { l: "Spuntino", d: "Noci (20g) + 1 frutto di stagione (150g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di pesce bianco surgelato al vapore (180g, busta pronta), patate lesse (150g)" },
+    ],
+  },
+  // Settimana B
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Cereali integrali (30g) con latte (200ml) e 1 frutto di stagione (120g)" },
+      { l: "Spuntino", d: "frutta di stagione (200g) + nocciole (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con couscous pronto (60g) e verdure surgelate (200g)" },
+      { l: "Spuntino", d: "Yogurt greco o skyr (150g) con miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di platessa surgelato al forno (180g), broccoli surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con formaggio spalmabile light (30g) e miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "Yogurt alla frutta proteico pronto (150g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con pollo ai ferri (150g) e curry in polvere (1 cucchiaino)" },
+      { l: "Spuntino", d: "Finocchi crudi (100g) + formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Petto di tacchino ai ferri (180g), zucchine surgelate (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge veloce (50g fiocchi d'avena + 200ml latte) con frutta di stagione a pezzi (100g) e miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + anacardi (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con ceci in scatola (100g) e tonno (80g sgocciolato)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con semi di chia (1 cucchiaio)" },
+      { l: "Cena", d: "Fettina di manzo ai ferri (150g), insalata pronta (50g) con grana a scaglie (10g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "2 uova strapazzate con pane integrale (1 fetta, 30g)" },
+      { l: "Spuntino", d: "Frullato pronto di frutta di stagione (200ml)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con zucchine surgelate (150g) e gamberi surgelati saltati (150g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di branzino surgelato al forno (180g), asparagi surgelati (150g), riso (50g crudo)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con granola pronta (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di mais con formaggio spalmabile light (20g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con bulgur precotto (60g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con spinaci surgelati (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "2 pancake pronti (mix in busta, 60g) con frutta di stagione (100g)" },
+      { l: "Spuntino", d: "Frullato proteico al cioccolato (200ml latte, 25g proteine, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con pollo ai ferri (150g) e mandorle a scaglie (10g), verdure surgelate (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di salmone ai ferri (150g), insalata di finocchi pronta (100g), patate lesse (150g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), macedonia di frutta di stagione (150g)" },
+      { l: "Spuntino", d: "Pistacchi (20g) + frutta di stagione (100g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di merluzzo surgelato al vapore (180g), verdure surgelate (200g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana C
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con corn flakes integrali (30g) e 1 frutto di stagione (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (100g) + noci (15g)" },
+      { l: "Pranzo", d: "Pollo ai ferri (150g) con riso (60g crudo) e sugo di pomodoro pronto (80g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di sogliola surgelato al forno (180g), spinaci surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con avocado (50g) e pomodoro (50g)" },
+      { l: "Spuntino", d: "Frullato pronto di frutta di stagione (200ml)" },
+      { l: "Pranzo", d: "Cous cous pronto (60g) con verdure surgelate (150g) e ceci in scatola (100g)" },
+      { l: "Spuntino", d: "Carote baby (100g) con formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Tacchino ai ferri (180g) con succo di 1/2 limone, broccoli surgelati (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge veloce (50g fiocchi d'avena + 200ml latte) con frutta di stagione a pezzi (100g) e uvetta (15g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + mandorle (15g)" },
+      { l: "Pranzo", d: "Orzo precotto (60g) con gamberi surgelati saltati (150g) e zucchine surgelate (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Fettina di manzo ai ferri (150g), insalata pronta (50g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con marmellata (15g) e 1 frutto di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (120g) + noci (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con ceci in scatola (100g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione a cubetti (100g)" },
+      { l: "Cena", d: "Filetto di trota surgelato al forno (150g), asparagi surgelati (150g), purè istantaneo (150g)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con muesli pronto (40g) e 1 frutto di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette con crema di mandorle (15g)" },
+      { l: "Pranzo", d: "Pollo ai ferri (150g) con farro precotto (60g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con zucchine surgelate (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con 1 uovo sodo e avocado (50g)" },
+      { l: "Spuntino", d: "Frullato pronto spinaci e frutta di stagione (200ml latte, 25g proteine, 1 frutto di stagione 100g, spinaci freschi 30g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con pesto pronto (30g) e petto di pollo ai ferri (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino) e miele (1 cucchiaino)" },
+      { l: "Cena", d: "Tacchino ai ferri (180g) con verdure surgelate (200g) e riso (50g crudo)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), spremuta di frutta di stagione (200ml)" },
+      { l: "Spuntino", d: "Noci (20g) + 1 frutto di stagione (150g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di pesce bianco surgelato al vapore (180g), verdure surgelate (200g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana D
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g) con fiocchi d'avena (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + noci (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g), patate lesse (150g), verdure surgelate (200g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) + miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di nasello surgelato al forno (180g), fagiolini surgelati (200g), pane integrale (1 fetta, 30g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), frutta di stagione (100g)" },
+      { l: "Spuntino", d: "Yogurt proteico pronto (150g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con lenticchie in scatola (100g) e pomodorini (100g)" },
+      { l: "Spuntino", d: "2 gallette di riso con formaggio spalmabile light (20g)" },
+      { l: "Cena", d: "Petto di tacchino ai ferri (180g), peperoni surgelati saltati (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge d'avena veloce (50g fiocchi + 200ml latte) con miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "Frutta di stagione (150g) + mandorle (15g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con tonno in scatola (80g sgocciolato) e pomodori (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Bistecca di manzo ai ferri (150g), insalata pronta (50g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con formaggio spalmabile light (30g), frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (120g) + noci (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con fagioli in scatola (100g) e carote a rondelle (100g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione a cubetti (100g)" },
+      { l: "Cena", d: "Filetto di salmone surgelato al forno (150g), cavolfiore surgelato (200g)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g) con muesli senza zuccheri (40g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di mais con crema di arachidi (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con cous cous pronto (60g) e melanzane surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con piselli surgelati (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con avocado (50g) e 1 uovo sodo" },
+      { l: "Spuntino", d: "Frullato proteico (200ml latte scremato, 25g proteine in polvere, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con pesto pronto (30g) e petto di tacchino ai ferri (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino) e miele (1 cucchiaino)" },
+      { l: "Cena", d: "Piadina integrale (1, 60g) con prosciutto cotto magro (80g), insalata (50g) e yogurt bianco (30g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), spremuta di frutta di stagione (200ml)" },
+      { l: "Spuntino", d: "Noci (20g) + 1 frutto di stagione (150g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di pesce bianco surgelato al vapore (180g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana E
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Cereali integrali (30g) con latte (200ml) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 frutti di stagione (200g) + nocciole (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con orzo precotto (60g) e zucchine surgelate (200g)" },
+      { l: "Spuntino", d: "Yogurt greco (150g) con miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di orata surgelato al forno (180g), broccoli surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con formaggio spalmabile light (30g) e miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "Yogurt alla frutta proteico pronto (150g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con pollo ai ferri (150g) e curry in polvere (1 cucchiaino)" },
+      { l: "Spuntino", d: "Carote baby (100g) + formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Petto di tacchino ai ferri (180g), fagiolini surgelati (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge veloce (50g fiocchi d'avena + 200ml latte) con frutta di stagione a pezzi (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + anacardi (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con ceci in scatola (100g) e tonno (80g sgocciolato)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con semi di chia (1 cucchiaio)" },
+      { l: "Cena", d: "Fettina di manzo ai ferri (150g), insalata pronta con grana a scaglie (10g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "2 uova strapazzate con pane integrale (1 fetta, 30g)" },
+      { l: "Spuntino", d: "Frullato pronto di frutta di stagione (200ml)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con piselli surgelati (150g) e gamberi surgelati saltati (150g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di halibut surgelato al forno (180g), asparagi surgelati (150g), riso (50g crudo)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con granola pronta (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di mais con formaggio spalmabile light (20g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con bulgur precotto (60g) e melanzane surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con spinaci surgelati (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "2 pancake pronti (mix in busta, 60g) con frutta di stagione (100g)" },
+      { l: "Spuntino", d: "Frullato proteico al cioccolato (200ml latte, 25g proteine, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con pollo ai ferri (150g) e mandorle a scaglie (10g), verdure surgelate (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di salmone ai ferri (150g), insalata pronta (100g), patate lesse (150g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), macedonia di frutta di stagione (150g)" },
+      { l: "Spuntino", d: "Pistacchi (20g) + frutta di stagione (100g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di merluzzo surgelato al vapore (180g), verdure surgelate (200g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana F
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con corn flakes integrali (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (100g) + noci (15g)" },
+      { l: "Pranzo", d: "Pollo ai ferri (150g) con riso (60g crudo) e sugo di pomodoro pronto (80g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di sogliola surgelato al forno (180g), spinaci surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con avocado (50g) e pomodoro (50g)" },
+      { l: "Spuntino", d: "Frullato pronto di frutta di stagione (200ml)" },
+      { l: "Pranzo", d: "Cous cous pronto (60g) con verdure surgelate (150g) e fagioli in scatola (100g)" },
+      { l: "Spuntino", d: "Carote baby (100g) con formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Tacchino ai ferri (180g) con succo di 1/2 limone, broccoli surgelati (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge veloce (50g fiocchi d'avena + 200ml latte) con frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + mandorle (15g)" },
+      { l: "Pranzo", d: "Orzo precotto (60g) con gamberi surgelati saltati (150g) e zucchine surgelate (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Fettina di manzo ai ferri (150g), insalata pronta (50g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con marmellata (15g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (120g) + noci (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con lenticchie in scatola (100g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione a cubetti (100g)" },
+      { l: "Cena", d: "Filetto di trota surgelato al forno (150g), asparagi surgelati (150g), purè istantaneo (150g)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con muesli pronto (40g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette con crema di mandorle (15g)" },
+      { l: "Pranzo", d: "Pollo ai ferri (150g) con farro precotto (60g) e verdure surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con zucchine surgelate (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con 1 uovo sodo e avocado (50g)" },
+      { l: "Spuntino", d: "Frullato pronto spinaci e frutta di stagione (200ml latte, 25g proteine, 1 frutto di stagione 100g, spinaci freschi 30g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con pesto pronto (30g) e petto di pollo ai ferri (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino) e miele (1 cucchiaino)" },
+      { l: "Cena", d: "Tacchino ai ferri (180g) con verdure surgelate (200g) e riso (50g crudo)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), spremuta di frutta di stagione (200ml)" },
+      { l: "Spuntino", d: "Noci (20g) + 1 frutto di stagione (150g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di pesce bianco surgelato al vapore (180g), verdure surgelate (200g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana G
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g) con muesli pronto (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + anacardi (15g)" },
+      { l: "Pranzo", d: "Petto di tacchino ai ferri (150g), farro precotto (60g), melanzane surgelate (200g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) + miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di halibut surgelato al forno (180g), piselli surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), frutta di stagione (150g)" },
+      { l: "Spuntino", d: "Yogurt proteico pronto (150g)" },
+      { l: "Pranzo", d: "Orzo precotto (60g) con fagioli in scatola (100g) e pomodorini (100g)" },
+      { l: "Spuntino", d: "Carote baby (100g) + formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Bresaola (80g) con rucola e grana a scaglie (10g), pane integrale (1 fetta, 30g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge d'avena veloce (50g fiocchi + 200ml latte), miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + noci (15g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con gamberi surgelati saltati (150g) e cavolfiore surgelato (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Bistecca di manzo ai ferri (150g), insalata in busta (50g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "Toast (2 fette pane integrale, 60g) con marmellata (15g), frutta di stagione (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (120g) + mandorle (20g)" },
+      { l: "Pranzo", d: "Farro precotto in busta (60g) con lenticchie in scatola (100g), pomodorini (100g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione a cubetti (100g)" },
+      { l: "Cena", d: "Filetto di nasello surgelato al forno (150g), zucchine surgelate (200g)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco 0% (200g) con muesli senza zuccheri (40g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di riso con crema di arachidi (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con quinoa precotta (60g) e pomodori (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con piselli surgelati (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con avocado (50g) e 1 uovo sodo" },
+      { l: "Spuntino", d: "Frullato proteico (200ml latte scremato, 25g proteine in polvere, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con pesto pronto (30g) e petto di tacchino ai ferri (100g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino) e miele (1 cucchiaino)" },
+      { l: "Cena", d: "Piadina integrale (1, 60g) con prosciutto cotto magro (80g), insalata (50g) e yogurt bianco (30g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), spremuta di frutta di stagione (200ml)" },
+      { l: "Spuntino", d: "Noci (20g) + 1 frutto di stagione (150g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di pesce bianco surgelato al vapore (180g), patate lesse (150g)" },
+    ],
+  },
+  // Settimana H
+  {
+    Lunedì: [
+      { l: "Colazione", d: "Cereali integrali (30g) con latte (200ml) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 frutti di stagione (200g) + nocciole (15g)" },
+      { l: "Pranzo", d: "Petto di pollo ai ferri (150g) con cous cous pronto (60g) e cavolfiore surgelato (200g)" },
+      { l: "Spuntino", d: "Yogurt greco o skyr (150g) con miele (1 cucchiaino)" },
+      { l: "Cena", d: "Filetto di orata surgelato al forno (180g), fagiolini surgelati (200g), patate lesse (150g)" },
+    ],
+    Martedì: [
+      { l: "Colazione", d: "Toast (1 fetta pane integrale, 30g) con formaggio spalmabile light (30g) e miele (1 cucchiaino)" },
+      { l: "Spuntino", d: "Yogurt alla frutta proteico pronto (150g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con tacchino ai ferri (150g) e curry in polvere (1 cucchiaino)" },
+      { l: "Spuntino", d: "Finocchi crudi (100g) + formaggio spalmabile light (30g)" },
+      { l: "Cena", d: "Petto di pollo ai ferri (180g), melanzane surgelate (200g), farro precotto (50g)" },
+    ],
+    Mercoledì: [
+      { l: "Colazione", d: "Porridge veloce (50g fiocchi d'avena + 200ml latte) con frutta di stagione a pezzi (100g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + anacardi (15g)" },
+      { l: "Pranzo", d: "Quinoa precotta (60g) con fagioli in scatola (100g) e tonno (80g sgocciolato)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con semi di chia (1 cucchiaio)" },
+      { l: "Cena", d: "Fettina di manzo ai ferri (150g), insalata pronta con grana a scaglie (10g), patate al forno surgelate (150g)" },
+    ],
+    Giovedì: [
+      { l: "Colazione", d: "2 uova strapazzate con pane integrale (1 fetta, 30g)" },
+      { l: "Spuntino", d: "Frullato pronto di frutta di stagione (200ml)" },
+      { l: "Pranzo", d: "Pasta (70g crudo) con piselli surgelati (150g) e gamberi surgelati saltati (150g)" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di halibut surgelato al forno (180g), asparagi surgelati (150g), riso (50g crudo)" },
+    ],
+    Venerdì: [
+      { l: "Colazione", d: "Yogurt greco (200g) con granola pronta (30g) e frutta di stagione (100g)" },
+      { l: "Spuntino", d: "2 gallette di mais con formaggio spalmabile light (20g)" },
+      { l: "Pranzo", d: "Petto di tacchino ai ferri (150g) con bulgur precotto (60g) e zucchine surgelate (150g)" },
+      { l: "Spuntino", d: "1 frutto di stagione (150g) + fiocchi di latte (100g)" },
+      { l: "Cena", d: "Frittata veloce (3 uova) con spinaci surgelati (150g), pane integrale (1 fetta, 30g)" },
+    ],
+    Sabato: [
+      { l: "Colazione", d: "2 pancake pronti (mix in busta, 60g) con frutta di stagione (100g)" },
+      { l: "Spuntino", d: "Frullato proteico al cioccolato (200ml latte, 25g proteine, 1 frutto di stagione 100g)" },
+      { l: "Pranzo", d: "Riso (60g crudo) con pollo ai ferri (150g) e mandorle a scaglie (10g), cavolfiore surgelato (150g)" },
+      { l: "Spuntino", d: "Yogurt greco 0% (150g) con cacao amaro (1 cucchiaino)" },
+      { l: "Cena", d: "Bresaola (80g) con rucola, grana a scaglie (10g) e patate lesse (150g)" },
+    ],
+    Domenica: [
+      { l: "Colazione", d: "2 uova sode, pane integrale (1 fetta, 30g), macedonia di frutta di stagione (150g)" },
+      { l: "Spuntino", d: "Pistacchi (20g) + frutta di stagione (100g)" },
+      { l: "Pranzo", d: "Pasto libero della settimana: porzione moderata, bilancia proteine e verdure" },
+      { l: "Spuntino", d: "Fiocchi di latte (150g) con frutta di stagione (100g)" },
+      { l: "Cena", d: "Filetto di merluzzo surgelato al vapore (180g), verdure surgelate (200g), patate lesse (150g)" },
+    ],
+  },
+];
+
+
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+function getMealsForDate(date) {
+  const dayName = GIORNI[date.getDay()];
+  const weekIdx = getISOWeek(date) % PIANO_SETTIMANE.length;
+  return PIANO_SETTIMANE[weekIdx][dayName];
+}
+
+const FRUTTA_PER_MESE = [
+  "arance, mandarini, clementine, kiwi, mele, pere",
+  "arance, mandarini, clementine, kiwi, mele, pere",
+  "kiwi, mele, pere, arance, fragole (da fine mese)",
+  "fragole, kiwi, mele, pere, nespole (da fine mese)",
+  "fragole, nespole, ciliegie (da fine mese)",
+  "ciliegie, albicocche, pesche, susine, meloni, fragole",
+  "pesche, albicocche, susine, meloni, angurie, fichi, mirtilli",
+  "pesche, susine, meloni, angurie, fichi, uva, mirtilli",
+  "uva, fichi, prugne, mele, pere, more",
+  "uva, cachi, mele, pere, castagne, melograno",
+  "cachi, mele, pere, melograno, kiwi",
+  "arance, mandarini, clementine, kiwi, mele, pere, melograno",
+];
+
+function fruttaDelMese(date) {
+  return FRUTTA_PER_MESE[date.getMonth()];
+}
+
+const DEFAULT_TIMES = ["08:00", "10:30", "13:00", "16:30", "20:00"];
+
+// --- Fabbisogno calorico dinamico ---
+const ANNO_NASCITA = 2003; // 23 anni a settembre 2026
+const PESO_INIZIALE = 100; // usato finché non registri una misurazione
+const CALORIE_BASE_PIANO = 1850; // kcal su cui sono tarate le quantità scritte nel piano pasti
+
+function etaAttuale(date) {
+  return date.getFullYear() - ANNO_NASCITA;
+}
+
+function pesoAttualeDa(physLogs) {
+  return physLogs.length ? physLogs[0].peso : PESO_INIZIALE;
+}
+
+function fattoreAttivitaDa(actLogs, date = new Date()) {
+  const finestra = 28 * 86400000; // ultime 4 settimane
+  const recenti = actLogs.filter((l) => date - new Date(l.date) <= finestra && date - new Date(l.date) >= 0);
+  const minutiTotali = recenti.reduce((s, l) => s + l.durata, 0);
+  const minutiSettimanaMedi = minutiTotali / 4;
+  const bonus = Math.min(0.3, minutiSettimanaMedi / 1000); // vita sedentaria + bonus in base a quanto ti alleni
+  return 1.2 + bonus;
+}
+
+const PESO_OBIETTIVO_DEFAULT = 80;
+const DATA_OBIETTIVO_DEFAULT = "2027-04-30";
+const TIPI_OBIETTIVO = [
+  { key: "perdita", label: "Perdita peso" },
+  { key: "mantenimento", label: "Mantenimento" },
+  { key: "aumento", label: "Aumento massa" },
+];
+
+function calcolaFabbisogno(physLogs, actLogs, obiettivo, date = new Date()) {
+  const peso = pesoAttualeDa(physLogs);
+  const eta = etaAttuale(date);
+  const bmr = 10 * peso + 6.25 * ALTEZZA_CM - 5 * eta + 5; // Mifflin-St Jeor, uomo
+  const fattore = fattoreAttivitaDa(actLogs, date);
+  const tdee = bmr * fattore;
+
+  const tipo = obiettivo?.tipo || "perdita";
+  const pesoTarget = obiettivo?.pesoTarget ?? PESO_OBIETTIVO_DEFAULT;
+  const dataTarget = obiettivo?.dataTarget ? new Date(obiettivo.dataTarget) : new Date(DATA_OBIETTIVO_DEFAULT);
+  const settimaneRimanenti = Math.max(1, (dataTarget - date) / (7 * 86400000));
+
+  let target = tdee;
+  let proteinePerKg = 1.8;
+  let grassiPerc = 0.27;
+
+  if (tipo === "perdita") {
+    const kgDaPerdere = Math.max(0, peso - pesoTarget);
+    let deficit = kgDaPerdere > 0 ? (kgDaPerdere * 7700) / (settimaneRimanenti * 7) : 0;
+    deficit = Math.min(deficit, 1000); // tetto di sicurezza sul deficit giornaliero
+    target = tdee - deficit;
+  } else if (tipo === "aumento") {
+    const kgDaAumentare = Math.max(0, pesoTarget - peso);
+    let surplus = kgDaAumentare > 0 ? (kgDaAumentare * 7700) / (settimaneRimanenti * 7) : 250;
+    surplus = Math.min(surplus, 500); // tetto per limitare l'accumulo di grasso
+    target = tdee + surplus;
+    proteinePerKg = 2.0; // più proteine per sostenere la crescita muscolare
+    grassiPerc = 0.25;
+  } else {
+    target = tdee; // mantenimento: nessun deficit o surplus
+  }
+
+  const sogliaMinima = 1500; // soglia di sicurezza per un uomo adulto
+  if (target < sogliaMinima) target = sogliaMinima;
+  target = Math.round(target / 10) * 10;
+
+  const proteine = Math.round(peso * proteinePerKg);
+  const grassi = Math.round((target * grassiPerc) / 9);
+  const carboidrati = Math.max(0, Math.round((target - proteine * 4 - grassi * 9) / 4));
+
+  return { peso, eta, bmr: Math.round(bmr), tdee: Math.round(tdee), target, proteine, grassi, carboidrati, fattoreAttivita: Math.round(fattore * 100) / 100, tipo };
+}
+
+function scalaQuantita(testo, fattore) {
+  return testo.replace(/(\d+(?:\.\d+)?)(g|ml)\b/g, (m, num, unit) => {
+    let val = Math.round((parseFloat(num) * fattore) / 5) * 5;
+    if (val < 5) val = 5;
+    return `${val}${unit}`;
+  });
+}
+
+function suggerisciPesoTarget(tipo, pesoAttuale) {
+  if (tipo === "perdita") return Math.max(50, Math.round(pesoAttuale - 15));
+  if (tipo === "aumento") return Math.round(pesoAttuale + 5);
+  return pesoAttuale;
+}
+
+function todayKey(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function useStoredState(key, initial) {
+  const [value, setValue] = useState(initial);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await window.storage.get(key, false);
+        if (mounted && res && res.value) setValue(JSON.parse(res.value));
+      } catch (e) {
+        // key not present yet, keep initial
+      } finally {
+        if (mounted) setLoaded(true);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [key]);
+
+  const save = useCallback(async (next) => {
+    setValue(next);
+    try {
+      await window.storage.set(key, JSON.stringify(next), false);
+    } catch (e) {
+      console.error("Errore salvataggio", key, e);
+    }
+  }, [key]);
+
+  return [value, save, loaded];
+}
+
+function Tab({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+        flex: 1, padding: "10px 4px", background: "none", border: "none", cursor: "pointer",
+        color: active ? "var(--accent)" : "var(--text-dim)",
+      }}
+    >
+      <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+      <span style={{ fontSize: 11, fontFamily: "var(--font-body)", letterSpacing: 0.2 }}>{label}</span>
+    </button>
+  );
+}
+
+function DiarioPasti({ diary, saveDiary, mealTimes, saveMealTimes, physLogs, actLogs, obiettivo }) {
+  const [dayOffset, setDayOffset] = useState(0);
+  const dateKey = todayKey(dayOffset);
+  const dayDate = new Date(dateKey);
+  const dayName = GIORNI[dayDate.getDay()];
+  const meals = getMealsForDate(dayDate);
+  const dayLog = diary[dateKey] || {};
+  const [editingTimes, setEditingTimes] = useState(false);
+
+  const fabbisogno = calcolaFabbisogno(physLogs, actLogs, obiettivo, dayDate);
+  const fattoreScala = fabbisogno.target / CALORIE_BASE_PIANO;
+
+  const toggleMeal = (idx) => {
+    const next = { ...diary, [dateKey]: { ...dayLog, [idx]: !dayLog[idx] } };
+    saveDiary(next);
+  };
+
+  const doneCount = Object.values(dayLog).filter(Boolean).length;
+
+  return (
+    <div style={{ padding: "20px 18px 90px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+        <h1 style={{ fontFamily: "var(--font-head)", fontSize: 28, margin: 0, color: "var(--text)" }}>{dayName}</h1>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => setDayOffset((o) => o - 1)} style={navBtnStyle}>‹</button>
+          <button onClick={() => setDayOffset(0)} style={{ ...navBtnStyle, fontSize: 12, width: "auto", padding: "0 10px" }}>Oggi</button>
+          <button onClick={() => setDayOffset((o) => o + 1)} style={navBtnStyle}>›</button>
+        </div>
+      </div>
+      <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, marginTop: 0, marginBottom: 4 }}>
+        {new Date(dateKey).toLocaleDateString("it-IT", { day: "numeric", month: "long" })} · {doneCount}/5 pasti registrati
+      </p>
+      <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 12, marginTop: 0, marginBottom: 14, fontStyle: "italic" }}>
+        Frutta di stagione questo mese: {fruttaDelMese(dayDate)}
+      </p>
+
+      <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
+        <p style={{ margin: 0, fontFamily: "var(--font-head)", fontSize: 15, color: "var(--text)" }}>
+          Fabbisogno di oggi: {fabbisogno.target} kcal <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-body)" }}>({TIPI_OBIETTIVO.find((o) => o.key === fabbisogno.tipo)?.label})</span>
+        </p>
+        <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>
+          Proteine {fabbisogno.proteine}g · Grassi {fabbisogno.grassi}g · Carboidrati {fabbisogno.carboidrati}g — calcolato su {fabbisogno.peso}kg, {fabbisogno.eta} anni, fattore attività {fabbisogno.fattoreAttivita}
+        </p>
+        <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>
+          Le porzioni qui sotto sono adattate automaticamente a questo fabbisogno.
+        </p>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {meals.map((m, idx) => {
+          const done = !!dayLog[idx];
+          return (
+            <div key={idx} style={{
+              background: "var(--surface)", borderRadius: 14, padding: "14px 16px",
+              display: "flex", alignItems: "flex-start", gap: 12,
+              border: done ? "1px solid var(--accent)" : "1px solid transparent",
+            }}>
+              <button onClick={() => toggleMeal(idx)} style={{
+                marginTop: 2, width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
+                border: `1.5px solid ${done ? "var(--accent)" : "var(--text-dim)"}`,
+                background: done ? "var(--accent)" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+              }}>
+                {done && <Check size={14} color="var(--bg)" strokeWidth={3} />}
+              </button>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontFamily: "var(--font-head)", fontSize: 15, color: "var(--text)" }}>{m.l}</span>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>{mealTimes[idx]}</span>
+                </div>
+                <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text-dim)", lineHeight: 1.4 }}>{scalaQuantita(m.d, fattoreScala)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={() => setEditingTimes(true)} style={{
+        marginTop: 20, width: "100%", background: "var(--surface-alt)", border: "none", borderRadius: 12,
+        padding: "12px", color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer",
+      }}>
+        <Clock size={15} /> Modifica orari promemoria
+      </button>
+
+      {editingTimes && (
+        <div style={overlayStyle} onClick={() => setEditingTimes(false)}>
+          <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontFamily: "var(--font-head)", margin: "0 0 14px", color: "var(--text)" }}>Orari dei pasti</h3>
+            {meals.map((m, idx) => (
+              <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text-dim)" }}>{m.l}</span>
+                <input
+                  type="time"
+                  value={mealTimes[idx]}
+                  onChange={(e) => {
+                    const next = [...mealTimes];
+                    next[idx] = e.target.value;
+                    saveMealTimes(next);
+                  }}
+                  style={inputStyle}
+                />
+              </div>
+            ))}
+            <button onClick={() => setEditingTimes(false)} style={primaryBtnStyle}>Fatto</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CAMPI_MISURE = [
+  { key: "vita", label: "Girovita", unit: "cm" },
+  { key: "fianchi", label: "Fianchi", unit: "cm" },
+  { key: "torace", label: "Torace", unit: "cm" },
+  { key: "collo", label: "Collo", unit: "cm" },
+  { key: "braccio", label: "Braccio", unit: "cm" },
+  { key: "coscia", label: "Coscia", unit: "cm" },
+];
+
+const ALTEZZA_CM = 187;
+
+function calcBMI(peso, altezzaCm) {
+  const h = altezzaCm / 100;
+  if (!peso || !h) return null;
+  return Math.round((peso / (h * h)) * 10) / 10;
+}
+
+function categoriaBMI(bmi) {
+  if (bmi == null) return "";
+  if (bmi < 18.5) return "sottopeso";
+  if (bmi < 25) return "normopeso";
+  if (bmi < 30) return "sovrappeso";
+  return "obesità";
+}
+
+function MiniChart({ title, unit, data }) {
+  if (data.length < 2) return null;
+  const values = data.map((d) => d.valore);
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const w = 260, h = 90, pad = 8;
+  const coords = values.map((v, i) => ({
+    x: pad + (i * (w - 2 * pad)) / (values.length - 1),
+    y: h - pad - ((v - min) / range) * (h - 2 * pad),
+  }));
+  const points = coords.map((c) => `${c.x},${c.y}`).join(" ");
+  return (
+    <div style={{ background: "var(--surface)", borderRadius: 14, padding: "12px 8px 8px" }}>
+      <p style={{ margin: "0 8px 6px", fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>
+        {title}{unit ? ` (${unit})` : ""}
+      </p>
+      <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height: 100, display: "block" }} preserveAspectRatio="none">
+        <polyline points={points} style={{ fill: "none", stroke: "var(--accent)", strokeWidth: 2 }} />
+        {coords.map((c, i) => (
+          <circle key={i} cx={c.x} cy={c.y} r="2.5" style={{ fill: "var(--accent)" }} />
+        ))}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "0 6px", fontFamily: "var(--font-body)", fontSize: 10, color: "var(--text-dim)" }}>
+        <span>{data[0].data}</span>
+        <span>{data[data.length - 1].data}</span>
+      </div>
+    </div>
+  );
+}
+
+function ParametriFisici({ logs, saveLogs, obiettivo, saveObiettivo, actLogs }) {
+  const [showForm, setShowForm] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [fotoIndex, setFotoIndex] = useState(null);
+  const [peso, setPeso] = useState("");
+  const [misure, setMisure] = useState({});
+  const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const fileRef = useRef(null);
+
+  const handlePhoto = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const addLog = () => {
+    if (!peso) return;
+    const misureFinali = {};
+    CAMPI_MISURE.forEach((c) => { if (misure[c.key]) misureFinali[c.key] = parseFloat(misure[c.key]); });
+    const pesoNum = parseFloat(peso);
+    const entry = {
+      id: Date.now(), date: todayKey(), peso: pesoNum,
+      bmi: calcBMI(pesoNum, ALTEZZA_CM), misure: misureFinali, note, photo,
+    };
+    const next = [entry, ...logs].sort((a, b) => new Date(b.date) - new Date(a.date));
+    saveLogs(next);
+    setPeso(""); setMisure({}); setNote(""); setPhoto(null);
+    setShowForm(false);
+  };
+
+  const removeLog = (id) => saveLogs(logs.filter((l) => l.id !== id));
+
+  const cronologici = [...logs].reverse();
+  const dataLabel = (l) => new Date(l.date).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+
+  const grafici = [
+    { key: "peso", title: "Peso", unit: "kg", data: cronologici.filter((l) => l.peso != null).map((l) => ({ data: dataLabel(l), valore: l.peso })) },
+    { key: "bmi", title: "BMI", unit: "", data: cronologici.filter((l) => l.bmi != null).map((l) => ({ data: dataLabel(l), valore: l.bmi })) },
+    ...CAMPI_MISURE.map((c) => ({
+      key: c.key, title: c.label, unit: c.unit,
+      data: cronologici.filter((l) => l.misure && l.misure[c.key] != null).map((l) => ({ data: dataLabel(l), valore: l.misure[c.key] })),
+    })),
+  ];
+
+  const ultimoBMI = logs[0]?.bmi;
+  const fabbisogno = calcolaFabbisogno(logs, actLogs, obiettivo);
+
+  const primoLog = logs.length ? logs[logs.length - 1] : null;
+  const ultimoLog = logs.length ? logs[0] : null;
+  let reportStats = null;
+  if (primoLog && ultimoLog && primoLog.id !== ultimoLog.id) {
+    const giorniTotali = Math.max(1, (new Date(ultimoLog.date) - new Date(primoLog.date)) / 86400000);
+    const settimaneTotali = giorniTotali / 7;
+    const variazionePeso = Math.round((ultimoLog.peso - primoLog.peso) * 10) / 10;
+    const mediaSettimanale = Math.round((variazionePeso / settimaneTotali) * 100) / 100;
+    const variazioneBMI = ultimoLog.bmi != null && primoLog.bmi != null ? Math.round((ultimoLog.bmi - primoLog.bmi) * 10) / 10 : null;
+
+    let progresso = null;
+    if (obiettivo.tipo !== "mantenimento" && obiettivo.pesoTarget) {
+      const distanzaIniziale = Math.abs(primoLog.peso - obiettivo.pesoTarget);
+      const distanzaAttuale = Math.abs(ultimoLog.peso - obiettivo.pesoTarget);
+      const percentuale = distanzaIniziale > 0 ? Math.min(100, Math.max(0, Math.round((1 - distanzaAttuale / distanzaIniziale) * 100))) : 100;
+      const giorniAllaScadenza = Math.round((new Date(obiettivo.dataTarget) - new Date()) / 86400000);
+      let stimaData = null;
+      if (mediaSettimanale !== 0 && distanzaAttuale > 0) {
+        const versoObiettivo = obiettivo.tipo === "perdita" ? mediaSettimanale < 0 : mediaSettimanale > 0;
+        if (versoObiettivo) {
+          const settimaneStimate = distanzaAttuale / Math.abs(mediaSettimanale);
+          stimaData = new Date(Date.now() + settimaneStimate * 7 * 86400000);
+        }
+      }
+      progresso = { percentuale, distanzaAttuale: Math.round(distanzaAttuale * 10) / 10, giorniAllaScadenza, stimaData };
+    }
+
+    reportStats = { giorniTotali: Math.round(giorniTotali), variazionePeso, mediaSettimanale, variazioneBMI, progresso };
+  }
+
+  const logsConFoto = [...logs].reverse().filter((l) => l.photo); // dal più vecchio al più recente
+  const fotoIdx = logsConFoto.length ? Math.min(fotoIndex ?? logsConFoto.length - 1, logsConFoto.length - 1) : 0;
+  const fotoCorrente = logsConFoto[fotoIdx];
+
+  return (
+    <div style={{ padding: "20px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h1 style={{ fontFamily: "var(--font-head)", fontSize: 28, margin: 0, color: "var(--text)" }}>Parametri fisici</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowReport(true)} style={{ ...fabStyle, background: "var(--surface-alt)" }}><TrendingDown size={18} color="var(--text)" /></button>
+          <button onClick={() => setShowForm(true)} style={fabStyle}><Plus size={20} color="var(--bg)" /></button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>Altezza: <strong style={{ color: "var(--text)" }}>{ALTEZZA_CM} cm</strong> — usata per calcolare il BMI</span>
+      </div>
+
+      <div style={{ background: "var(--surface)", borderRadius: 14, padding: "14px", marginBottom: 16 }}>
+        <p style={{ margin: "0 0 8px", fontFamily: "var(--font-head)", fontSize: 14, color: "var(--text)" }}>Obiettivo</p>
+        <div style={{ display: "flex", gap: 6 }}>
+          {TIPI_OBIETTIVO.map((o) => (
+            <button
+              key={o.key}
+              onClick={() => {
+                const pesoAttuale = pesoAttualeDa(logs);
+                let next = { ...obiettivo, tipo: o.key };
+                if (o.key === "perdita" && !(obiettivo.pesoTarget < pesoAttuale)) {
+                  next.pesoTarget = suggerisciPesoTarget("perdita", pesoAttuale);
+                }
+                if (o.key === "aumento" && !(obiettivo.pesoTarget > pesoAttuale)) {
+                  next.pesoTarget = suggerisciPesoTarget("aumento", pesoAttuale);
+                }
+                saveObiettivo(next);
+              }}
+              style={{
+                flex: 1, padding: "8px 4px", borderRadius: 8, border: "none", cursor: "pointer",
+                background: obiettivo.tipo === o.key ? "var(--accent)" : "var(--surface-alt)",
+                color: obiettivo.tipo === o.key ? "var(--bg)" : "var(--text)",
+                fontFamily: "var(--font-body)", fontSize: 12,
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {obiettivo.tipo !== "mantenimento" && (
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Peso obiettivo (kg)</label>
+              <input
+                type="number" step="0.5" value={obiettivo.pesoTarget}
+                onChange={(e) => saveObiettivo({ ...obiettivo, pesoTarget: parseFloat(e.target.value) || 0 })}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Entro il</label>
+              <input
+                type="date" value={obiettivo.dataTarget}
+                onChange={(e) => saveObiettivo({ ...obiettivo, dataTarget: e.target.value })}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
+        <p style={{ margin: 0, fontFamily: "var(--font-head)", fontSize: 15, color: "var(--text)" }}>
+          Fabbisogno attuale: {fabbisogno.target} kcal/giorno <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-body)" }}>({TIPI_OBIETTIVO.find((o) => o.key === fabbisogno.tipo)?.label})</span>
+        </p>
+        <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>
+          Calcolato sul tuo peso più recente ({fabbisogno.peso} kg) e sull'obiettivo che hai scelto sopra. Cambia obiettivo o registra un nuovo peso: fabbisogno, macro e porzioni nel Diario si ricalcolano subito di conseguenza.
+        </p>
+      </div>
+
+      {ultimoBMI != null && (
+        <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "10px 14px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text-dim)" }}>BMI attuale</span>
+          <span style={{ fontFamily: "var(--font-head)", fontSize: 16, color: "var(--text)" }}>{ultimoBMI} <span style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-body)" }}>({categoriaBMI(ultimoBMI)})</span></span>
+        </div>
+      )}
+
+      {logs.length === 0 ? (
+        <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, textAlign: "center", marginTop: 40 }}>
+          Ancora nessuna misurazione. Aggiungi la prima con il pulsante +
+        </p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          {grafici.filter((g) => g.data.length >= 2).map((g) => (
+            <MiniChart key={g.key} title={g.title} unit={g.unit} data={g.data} />
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {logs.map((l) => (
+          <div key={l.id} style={{ background: "var(--surface)", borderRadius: 14, padding: 14, display: "flex", gap: 12, alignItems: "flex-start" }}>
+            {l.photo ? (
+              <img src={l.photo} alt="" style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
+            ) : (
+              <div style={{ width: 52, height: 52, borderRadius: 10, background: "var(--surface-alt)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Camera size={18} color="var(--text-dim)" />
+              </div>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "var(--font-head)", fontSize: 17, color: "var(--text)" }}>{l.peso} kg</span>
+                {l.bmi != null && <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>BMI {l.bmi}</span>}
+              </div>
+              {l.misure && Object.keys(l.misure).length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                  {CAMPI_MISURE.filter((c) => l.misure[c.key] != null).map((c) => (
+                    <span key={c.key} style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)", background: "var(--surface-alt)", borderRadius: 6, padding: "2px 6px" }}>
+                      {c.label} {l.misure[c.key]} {c.unit}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)", display: "block", marginTop: 4 }}>
+                {new Date(l.date).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
+              {l.note && <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>{l.note}</p>}
+            </div>
+            <button onClick={() => removeLog(l.id)} style={iconBtnStyle}><Trash2 size={15} /></button>
+          </div>
+        ))}
+      </div>
+
+      {showReport && (
+        <div style={overlayStyle} onClick={() => setShowReport(false)}>
+          <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontFamily: "var(--font-head)", margin: 0, color: "var(--text)" }}>Report misurazioni</h3>
+              <button onClick={() => setShowReport(false)} style={iconBtnStyle}><X size={18} /></button>
+            </div>
+
+            {!reportStats ? (
+              <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, textAlign: "center", margin: "30px 0" }}>
+                Servono almeno due misurazioni in date diverse per generare un report.
+              </p>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>Variazione peso</p>
+                    <p style={{ margin: "2px 0 0", fontFamily: "var(--font-head)", fontSize: 18, color: "var(--text)" }}>{reportStats.variazionePeso > 0 ? "+" : ""}{reportStats.variazionePeso} kg</p>
+                  </div>
+                  <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>Media settimanale</p>
+                    <p style={{ margin: "2px 0 0", fontFamily: "var(--font-head)", fontSize: 18, color: "var(--text)" }}>{reportStats.mediaSettimanale > 0 ? "+" : ""}{reportStats.mediaSettimanale} kg</p>
+                  </div>
+                  <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>Periodo osservato</p>
+                    <p style={{ margin: "2px 0 0", fontFamily: "var(--font-head)", fontSize: 18, color: "var(--text)" }}>{reportStats.giorniTotali} giorni</p>
+                  </div>
+                  {reportStats.variazioneBMI != null && (
+                    <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "10px 12px" }}>
+                      <p style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>Variazione BMI</p>
+                      <p style={{ margin: "2px 0 0", fontFamily: "var(--font-head)", fontSize: 18, color: "var(--text)" }}>{reportStats.variazioneBMI > 0 ? "+" : ""}{reportStats.variazioneBMI}</p>
+                    </div>
+                  )}
+                </div>
+
+                {reportStats.progresso && (
+                  <div style={{ background: "var(--surface-alt)", borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
+                    <p style={{ margin: 0, fontFamily: "var(--font-head)", fontSize: 14, color: "var(--text)" }}>
+                      Verso l'obiettivo: {reportStats.progresso.percentuale}%
+                    </p>
+                    <div style={{ background: "var(--surface)", borderRadius: 6, height: 8, marginTop: 8, overflow: "hidden" }}>
+                      <div style={{ width: `${reportStats.progresso.percentuale}%`, height: "100%", background: "var(--accent)" }} />
+                    </div>
+                    <p style={{ margin: "8px 0 0", fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>
+                      Mancano {reportStats.progresso.distanzaAttuale} kg all'obiettivo di {obiettivo.pesoTarget} kg.
+                      {reportStats.progresso.giorniAllaScadenza >= 0 ? ` Scadenza fissata tra ${reportStats.progresso.giorniAllaScadenza} giorni.` : " La data obiettivo è già passata."}
+                      {reportStats.progresso.stimaData ? ` Al ritmo attuale, la stimo per il ${reportStats.progresso.stimaData.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}.` : ""}
+                    </p>
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  {grafici.filter((g) => g.data.length >= 2).map((g) => (
+                    <MiniChart key={g.key} title={g.title} unit={g.unit} data={g.data} />
+                  ))}
+                </div>
+
+                <p style={{ margin: "0 0 8px", fontFamily: "var(--font-head)", fontSize: 14, color: "var(--text)" }}>Foto progressi</p>
+                {logsConFoto.length === 0 ? (
+                  <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 12, marginBottom: 16 }}>
+                    Nessuna foto ancora aggiunta alle misurazioni.
+                  </p>
+                ) : (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ position: "relative" }}>
+                      <img src={fotoCorrente.photo} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 14, display: "block" }} />
+                      <button
+                        onClick={() => setFotoIndex(Math.max(0, fotoIdx - 1))}
+                        disabled={fotoIdx === 0}
+                        style={{ ...navBtnStyle, position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", opacity: fotoIdx === 0 ? 0.3 : 1 }}
+                      >‹</button>
+                      <button
+                        onClick={() => setFotoIndex(Math.min(logsConFoto.length - 1, fotoIdx + 1))}
+                        disabled={fotoIdx === logsConFoto.length - 1}
+                        style={{ ...navBtnStyle, position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", opacity: fotoIdx === logsConFoto.length - 1 ? 0.3 : 1 }}
+                      >›</button>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 }}>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>
+                        {new Date(fotoCorrente.date).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })} · {fotoCorrente.peso} kg{fotoCorrente.bmi != null ? ` · BMI ${fotoCorrente.bmi}` : ""}
+                      </span>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>{fotoIdx + 1}/{logsConFoto.length}</span>
+                    </div>
+                  </div>
+                )}
+
+                <p style={{ margin: "0 0 8px", fontFamily: "var(--font-head)", fontSize: 14, color: "var(--text)" }}>Storico completo</p>
+                <div style={{ background: "var(--surface-alt)", borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+                  {logs.map((l, i) => (
+                    <div key={l.id} style={{
+                      display: "flex", justifyContent: "space-between", padding: "8px 12px",
+                      borderBottom: i < logs.length - 1 ? "1px solid var(--surface)" : "none",
+                    }}>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>
+                        {new Date(l.date).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                      </span>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text)" }}>
+                        {l.peso} kg{l.bmi != null ? ` · BMI ${l.bmi}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showForm && (
+        <div style={overlayStyle} onClick={() => setShowForm(false)}>
+          <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontFamily: "var(--font-head)", margin: 0, color: "var(--text)" }}>Nuova misurazione</h3>
+              <button onClick={() => setShowForm(false)} style={iconBtnStyle}><X size={18} /></button>
+            </div>
+            <label style={labelStyle}>Peso (kg)</label>
+            <input type="number" step="0.1" value={peso} onChange={(e) => setPeso(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }} placeholder="es. 98.5" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              {CAMPI_MISURE.map((c) => (
+                <div key={c.key}>
+                  <label style={labelStyle}>{c.label} ({c.unit}) — opz.</label>
+                  <input
+                    type="number" step="0.5"
+                    value={misure[c.key] || ""}
+                    onChange={(e) => setMisure({ ...misure, [c.key]: e.target.value })}
+                    style={{ ...inputStyle, width: "100%" }}
+                  />
+                </div>
+              ))}
+            </div>
+            <label style={labelStyle}>Note — opzionale</label>
+            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }} placeholder="come ti senti oggi" />
+            <button onClick={() => fileRef.current.click()} style={{ ...primaryBtnStyle, background: "var(--surface-alt)", color: "var(--text)", marginBottom: 10 }}>
+              <Camera size={15} style={{ marginRight: 6, verticalAlign: -3 }} /> {photo ? "Foto selezionata ✓" : "Aggiungi foto"}
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display: "none" }} />
+            <button onClick={addLog} style={primaryBtnStyle}>Salva misurazione</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TIPI_ATTIVITA = ["Camminata", "Corsa", "Bici", "Palestra", "Nuoto", "Altro"];
+
+function AttivitaFisica({ logs, saveLogs }) {
+  const [showForm, setShowForm] = useState(false);
+  const [tipo, setTipo] = useState(TIPI_ATTIVITA[0]);
+  const [durata, setDurata] = useState("");
+  const [note, setNote] = useState("");
+
+  const addLog = () => {
+    if (!durata) return;
+    const entry = { id: Date.now(), date: todayKey(), tipo, durata: parseInt(durata, 10), note };
+    saveLogs([entry, ...logs]);
+    setDurata(""); setNote(""); setShowForm(false);
+  };
+
+  const removeLog = (id) => saveLogs(logs.filter((l) => l.id !== id));
+  const weekTotal = logs.filter((l) => {
+    const d = new Date(l.date), now = new Date();
+    return (now - d) / 86400000 <= 7;
+  }).reduce((s, l) => s + l.durata, 0);
+
+  return (
+    <div style={{ padding: "20px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h1 style={{ fontFamily: "var(--font-head)", fontSize: 28, margin: 0, color: "var(--text)" }}>Attività fisica</h1>
+        <button onClick={() => setShowForm(true)} style={fabStyle}><Plus size={20} color="var(--bg)" /></button>
+      </div>
+      <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, marginTop: 0, marginBottom: 18 }}>
+        {weekTotal} minuti negli ultimi 7 giorni
+      </p>
+
+      {logs.length === 0 && (
+        <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, textAlign: "center", marginTop: 40 }}>
+          Nessuna attività registrata. Aggiungine una con il pulsante +
+        </p>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {logs.map((l) => (
+          <div key={l.id} style={{ background: "var(--surface)", borderRadius: 14, padding: 14, display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "var(--surface-alt)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Dumbbell size={17} color="var(--accent)" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                <span style={{ fontFamily: "var(--font-head)", fontSize: 15, color: "var(--text)" }}>{l.tipo}</span>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>{l.durata} min</span>
+              </div>
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-dim)" }}>
+                {new Date(l.date).toLocaleDateString("it-IT", { day: "numeric", month: "long" })}
+              </span>
+              {l.note && <p style={{ margin: "4px 0 0", fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)" }}>{l.note}</p>}
+            </div>
+            <button onClick={() => removeLog(l.id)} style={iconBtnStyle}><Trash2 size={15} /></button>
+          </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <div style={overlayStyle} onClick={() => setShowForm(false)}>
+          <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontFamily: "var(--font-head)", margin: 0, color: "var(--text)" }}>Nuova attività</h3>
+              <button onClick={() => setShowForm(false)} style={iconBtnStyle}><X size={18} /></button>
+            </div>
+            <label style={labelStyle}>Tipo</label>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }}>
+              {TIPI_ATTIVITA.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <label style={labelStyle}>Durata (minuti)</label>
+            <input type="number" value={durata} onChange={(e) => setDurata(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }} placeholder="es. 30" />
+            <label style={labelStyle}>Note — opzionale</label>
+            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }} placeholder="intensità, percorso..." />
+            <button onClick={addLog} style={primaryBtnStyle}>Salva attività</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LISTA_SPESA = [
+  // Lista per la Settimana A
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~750 g)", "Petto di tacchino (~500 g)", "Bistecca di manzo magra (150 g)", "Filetti di merluzzo surgelati", "Filetto di salmone surgelato", "Filetti di pesce bianco surgelati", "Gamberi surgelati", "Tonno in scatola", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Pomodorini", "Pomodori", "Carote baby", "Avocado", "Insalata pronta in busta", "Verdure surgelate miste", "Zucchine surgelate"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light", "Yogurt bianco", "Yogurt proteico pronto", "Latte"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Pane integrale", "Riso", "Pasta", "Farro precotto (busta)", "Quinoa precotta (busta)", "Ceci in scatola", "Cereali integrali da colazione", "Muesli senza zuccheri aggiunti", "Gallette di riso", "Piadine o wrap integrali"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Marmellata o crema di nocciole", "Crema di arachidi", "Mandorle", "Noci", "Pesto pronto", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana B
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~500 g)", "Fettine di manzo magro (150 g)", "Filetti di platessa surgelati", "Filetti di branzino surgelati", "Filetto di salmone", "Filetti di merluzzo surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Finocchi", "Asparagi surgelati", "Broccoli surgelati", "Zucchine surgelate", "Verdure surgelate miste", "Spinaci surgelati"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Skyr", "Fiocchi di latte", "Formaggio spalmabile light", "Grana in scaglie", "Yogurt alla frutta proteico", "Latte"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Cereali integrali da colazione", "Couscous pronto", "Riso", "Farro precotto (busta)", "Quinoa precotta (busta)", "Pasta", "Bulgur precotto", "Pane integrale", "Granola pronta senza zuccheri", "Gallette di mais", "Ceci in scatola", "Tonno in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Curry in polvere", "Nocciole", "Anacardi", "Semi di chia", "Mandorle a scaglie", "Pistacchi", "Cacao amaro", "Mix per pancake pronto", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana C
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~500 g)", "Fettine di manzo magro (150 g)", "Filetti di sogliola surgelati", "Filetti di trota surgelati", "Filetti di pesce bianco surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Avocado", "Pomodori", "Carote baby", "Spinaci surgelati", "Broccoli surgelati", "Zucchine surgelate", "Verdure surgelate miste", "Asparagi surgelati", "Uvetta", "Insalata pronta in busta"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Corn flakes integrali", "Riso", "Cous cous pronto", "Farro precotto (busta)", "Orzo precotto", "Quinoa precotta (busta)", "Pasta", "Muesli pronto", "Gallette", "Pane integrale", "Ceci in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Sugo di pomodoro pronto", "Limone", "Cacao amaro", "Mandorle", "Noci", "Crema di mandorle", "Marmellata", "Pesto pronto", "Purè istantaneo", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana D
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~500 g)", "Bistecca di manzo magra (150 g)", "Filetti di nasello surgelati", "Filetto di salmone surgelato", "Filetti di pesce bianco surgelati", "Prosciutto cotto magro", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Pomodorini", "Pomodori", "Carote", "Peperoni surgelati", "Fagiolini surgelati", "Cavolfiore surgelato", "Piselli surgelati", "Verdure surgelate miste", "Insalata pronta in busta", "Avocado"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light", "Yogurt bianco", "Yogurt proteico pronto", "Latte"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Pane integrale", "Riso", "Pasta", "Farro precotto (busta)", "Quinoa precotta (busta)", "Cous cous pronto", "Lenticchie in scatola", "Fagioli in scatola", "Cereali integrali da colazione", "Muesli senza zuccheri aggiunti", "Gallette di riso", "Gallette di mais", "Piadine integrali", "Tonno in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Marmellata", "Crema di arachidi", "Mandorle", "Noci", "Pesto pronto", "Patate", "Cacao amaro", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana E
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~500 g)", "Fettine di manzo magro (150 g)", "Filetti di orata surgelati", "Filetti di halibut surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Zucchine surgelate", "Broccoli surgelati", "Fagiolini surgelati", "Melanzane surgelate", "Piselli surgelati", "Asparagi surgelati", "Spinaci surgelati", "Carote baby", "Insalata pronta in busta"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light", "Grana in scaglie", "Yogurt alla frutta proteico", "Latte"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Cereali integrali da colazione", "Orzo precotto", "Riso", "Farro precotto (busta)", "Quinoa precotta (busta)", "Pasta", "Bulgur precotto", "Pane integrale", "Granola pronta senza zuccheri", "Gallette di mais", "Ceci in scatola", "Tonno in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Curry in polvere", "Anacardi", "Semi di chia", "Mandorle a scaglie", "Cacao amaro", "Mix per pancake pronto", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana F
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~500 g)", "Fettine di manzo magro (150 g)", "Filetti di sogliola surgelati", "Filetti di trota surgelati", "Filetti di pesce bianco surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Avocado", "Pomodori", "Carote baby", "Spinaci surgelati", "Broccoli surgelati", "Zucchine surgelate", "Verdure surgelate miste", "Asparagi surgelati", "Insalata pronta in busta"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Corn flakes integrali", "Riso", "Cous cous pronto", "Farro precotto (busta)", "Orzo precotto", "Quinoa precotta (busta)", "Pasta", "Muesli pronto", "Gallette", "Pane integrale", "Fagioli in scatola", "Lenticchie in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Sugo di pomodoro pronto", "Limone", "Cacao amaro", "Mandorle", "Noci", "Crema di mandorle", "Marmellata", "Pesto pronto", "Purè istantaneo", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana G
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~450 g)", "Petto di tacchino (~450 g)", "Bistecca di manzo magra (150 g)", "Bresaola (80 g)", "Prosciutto cotto magro (80 g)", "Filetti di halibut surgelati", "Filetti di nasello surgelati", "Filetti di pesce bianco surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Pomodorini", "Pomodori", "Carote baby", "Rucola", "Melanzane surgelate", "Piselli surgelati", "Cavolfiore surgelato", "Zucchine surgelate", "Insalata in busta", "Avocado"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Fiocchi di latte", "Formaggio spalmabile light", "Grana in scaglie", "Yogurt bianco", "Yogurt proteico pronto"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Pane integrale", "Riso", "Pasta", "Farro precotto (busta)", "Quinoa precotta (busta)", "Orzo precotto", "Lenticchie in scatola", "Fagioli in scatola", "Muesli pronto", "Gallette di riso", "Piadine integrali"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Marmellata", "Crema di arachidi", "Mandorle", "Noci", "Pesto pronto", "Patate", "Cacao amaro", "Proteine in polvere (opzionale)"] },
+  ],
+  // Lista per la Settimana H
+  [
+    { titolo: "Carne, pesce e uova", articoli: ["Petto di pollo (~600 g)", "Petto di tacchino (~450 g)", "Fettine di manzo magro (150 g)", "Bresaola (80 g)", "Filetti di orata surgelati", "Filetti di halibut surgelati", "Filetti di merluzzo surgelati", "Gamberi surgelati", "Uova (1 confezione)"] },
+    { titolo: "Frutta e verdura", articoli: ["Frutta di stagione (vedi suggerimenti nel Diario)", "Cavolfiore surgelato", "Fagiolini surgelati", "Melanzane surgelate", "Zucchine surgelate", "Spinaci surgelati", "Asparagi surgelati", "Verdure surgelate miste", "Finocchi", "Rucola"] },
+    { titolo: "Latticini", articoli: ["Yogurt greco 0%", "Skyr", "Fiocchi di latte", "Formaggio spalmabile light", "Grana in scaglie", "Yogurt alla frutta proteico", "Latte"] },
+    { titolo: "Cereali, legumi e pane", articoli: ["Cereali integrali da colazione", "Cous cous pronto", "Riso", "Farro precotto (busta)", "Quinoa precotta (busta)", "Pasta", "Bulgur precotto", "Pane integrale", "Granola pronta senza zuccheri", "Gallette di mais", "Fagioli in scatola", "Tonno in scatola"] },
+    { titolo: "Dispensa e varie", articoli: ["Miele", "Curry in polvere", "Anacardi", "Semi di chia", "Mandorle a scaglie", "Cacao amaro", "Mix per pancake pronto", "Patate", "Proteine in polvere (opzionale)"] },
+  ],
+];
+
+function ListaSpesa() {
+  const now = new Date();
+  const weekIdx = getISOWeek(now) % LISTA_SPESA.length;
+  const lettera = ["A", "B", "C", "D", "E", "F", "G", "H"][weekIdx];
+  const storageKey = `spesa-check-${now.getFullYear()}-w${getISOWeek(now)}`;
+  const [checked, saveChecked] = useStoredState(storageKey, {});
+  const categorie = LISTA_SPESA[weekIdx];
+
+  const toggle = (id) => saveChecked({ ...checked, [id]: !checked[id] });
+
+  const totale = categorie.reduce((s, c) => s + c.articoli.length, 0);
+  const fatti = Object.values(checked).filter(Boolean).length;
+
+  return (
+    <div style={{ padding: "20px 18px 90px" }}>
+      <h1 style={{ fontFamily: "var(--font-head)", fontSize: 28, margin: 0, color: "var(--text)" }}>Lista della spesa</h1>
+      <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 13, marginTop: 4, marginBottom: 4 }}>
+        Settimana {lettera} · {fatti}/{totale} presi
+      </p>
+      <p style={{ color: "var(--text-dim)", fontFamily: "var(--font-body)", fontSize: 12, marginTop: 0, marginBottom: 18, fontStyle: "italic" }}>
+        Frutta di stagione questo mese: {fruttaDelMese(now)}
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {categorie.map((cat, ci) => (
+          <div key={ci}>
+            <h3 style={{ fontFamily: "var(--font-head)", fontSize: 15, color: "var(--text)", margin: "0 0 8px" }}>{cat.titolo}</h3>
+            <div style={{ background: "var(--surface)", borderRadius: 14, overflow: "hidden" }}>
+              {cat.articoli.map((art, ai) => {
+                const id = `${ci}-${ai}`;
+                const done = !!checked[id];
+                return (
+                  <button
+                    key={id}
+                    onClick={() => toggle(id)}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                      padding: "10px 14px", background: "none", border: "none", cursor: "pointer",
+                      borderBottom: ai < cat.articoli.length - 1 ? "1px solid var(--surface-alt)" : "none",
+                    }}
+                  >
+                    <div style={{
+                      width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                      border: `1.5px solid ${done ? "var(--accent)" : "var(--text-dim)"}`,
+                      background: done ? "var(--accent)" : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {done && <Check size={12} color="var(--bg)" strokeWidth={3} />}
+                    </div>
+                    <span style={{
+                      fontFamily: "var(--font-body)", fontSize: 13,
+                      color: done ? "var(--text-dim)" : "var(--text)",
+                      textDecoration: done ? "line-through" : "none",
+                    }}>
+                      {art}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const navBtnStyle = { width: 30, height: 30, borderRadius: 8, border: "none", background: "var(--surface)", color: "var(--text)", cursor: "pointer", fontSize: 16 };
+const overlayStyle = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-end", zIndex: 50 };
+const sheetStyle = { background: "var(--bg)", borderRadius: "18px 18px 0 0", padding: "20px 18px 26px", width: "100%", maxHeight: "85vh", overflowY: "auto" };
+const inputStyle = { background: "var(--surface-alt)", border: "1px solid transparent", borderRadius: 10, padding: "9px 12px", color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 14, outline: "none" };
+const labelStyle = { display: "block", fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-dim)", marginBottom: 5 };
+const primaryBtnStyle = { width: "100%", background: "var(--accent)", border: "none", borderRadius: 12, padding: "12px", color: "var(--bg)", fontFamily: "var(--font-head)", fontSize: 14, cursor: "pointer" };
+const iconBtnStyle = { background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 6 };
+const fabStyle = { width: 38, height: 38, borderRadius: "50%", background: "var(--accent)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" };
+
+function App() {
+  const [tab, setTab] = useState("diario");
+  const [diary, saveDiary, diaryLoaded] = useStoredState("diary-log", {});
+  const [mealTimes, saveMealTimes] = useStoredState("meal-times", DEFAULT_TIMES);
+  const [physLogs, savePhysLogs] = useStoredState("physical-logs", []);
+  const [actLogs, saveActLogs] = useStoredState("activity-logs", []);
+  const [obiettivo, saveObiettivo] = useStoredState("obiettivo-dieta", { tipo: "perdita", pesoTarget: PESO_OBIETTIVO_DEFAULT, dataTarget: DATA_OBIETTIVO_DEFAULT });
+  const [reminder, setReminder] = useState(null);
+  const notifiedRef = useRef({});
+
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    const check = () => {
+      const now = new Date();
+      const meals = getMealsForDate(now);
+      const fabbisogno = calcolaFabbisogno(physLogs, actLogs, obiettivo, now);
+      const fattoreScala = fabbisogno.target / CALORIE_BASE_PIANO;
+      mealTimes.forEach((t, idx) => {
+        const [h, m] = t.split(":").map(Number);
+        const mealDate = new Date(now); mealDate.setHours(h, m, 0, 0);
+        const diffMin = (mealDate - now) / 60000;
+        const flagKey = `${todayKey()}-${idx}`;
+        if (diffMin <= 10 && diffMin > 9 && !notifiedRef.current[flagKey]) {
+          notifiedRef.current[flagKey] = true;
+          setReminder({ label: meals[idx].l, time: t });
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification(`Tra 10 minuti: ${meals[idx].l}`, { body: scalaQuantita(meals[idx].d, fattoreScala) });
+          }
+        }
+      });
+    };
+    const id = setInterval(check, 20000);
+    check();
+    return () => clearInterval(id);
+  }, [mealTimes, physLogs, actLogs, obiettivo]);
+
+  if (!diaryLoaded) return null;
+
+  return (
+    <div style={{
+      "--bg": "#1B2420", "--surface": "#243129", "--surface-alt": "#2E3D34",
+      "--text": "#EDECE6", "--text-dim": "#8FA098", "--accent": "#D9C46A",
+      "--accent2": "#E2704F", "--font-head": "'Fraunces', serif", "--font-body": "'IBM Plex Sans', sans-serif",
+      background: "var(--bg)", minHeight: "100vh", maxWidth: 420, margin: "0 auto", position: "relative",
+      fontFamily: "var(--font-body)",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap');
+        input, select { font-family: var(--font-body); }
+        input:focus, select:focus { outline: 1.5px solid var(--accent); }
+      `}</style>
+
+      {reminder && (
+        <div style={{
+          position: "fixed", top: 14, left: 14, right: 14, maxWidth: 392, margin: "0 auto",
+          background: "var(--accent2)", borderRadius: 12, padding: "12px 14px", zIndex: 60,
+          display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+        }}>
+          <Bell size={16} color="#1B2420" />
+          <span style={{ color: "#1B2420", fontFamily: "var(--font-body)", fontSize: 13, flex: 1 }}>
+            Tra 10 minuti: <strong>{reminder.label}</strong> ({reminder.time})
+          </span>
+          <button onClick={() => setReminder(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <X size={15} color="#1B2420" />
+          </button>
+        </div>
+      )}
+
+      {tab === "diario" && <DiarioPasti diary={diary} saveDiary={saveDiary} mealTimes={mealTimes} saveMealTimes={saveMealTimes} physLogs={physLogs} actLogs={actLogs} obiettivo={obiettivo} />}
+      {tab === "fisico" && <ParametriFisici logs={physLogs} saveLogs={savePhysLogs} obiettivo={obiettivo} saveObiettivo={saveObiettivo} actLogs={actLogs} />}
+      {tab === "attivita" && <AttivitaFisica logs={actLogs} saveLogs={saveActLogs} />}
+      {tab === "spesa" && <ListaSpesa />}
+
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 420, margin: "0 auto",
+        background: "var(--surface)", display: "flex", borderTop: "1px solid var(--surface-alt)",
+      }}>
+        <Tab active={tab === "diario"} onClick={() => setTab("diario")} icon={Utensils} label="Diario" />
+        <Tab active={tab === "fisico"} onClick={() => setTab("fisico")} icon={Ruler} label="Fisico" />
+        <Tab active={tab === "attivita"} onClick={() => setTab("attivita")} icon={Dumbbell} label="Attività" />
+        <Tab active={tab === "spesa"} onClick={() => setTab("spesa")} icon={ShoppingCart} label="Spesa" />
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
